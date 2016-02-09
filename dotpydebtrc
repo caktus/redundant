@@ -1,0 +1,20 @@
+[files]
+extensions =
+	.py
+	.html
+	.js
+	.css
+exclude-path =
+	*jquery.*
+	*min.js*
+	*min.css*
+	*tidy.*
+	*backbone.*
+	*tinymce*
+	underscore.js
+	backbone.js
+	bootstrap*js
+	bootstrap*css
+
+[report]
+indent = 4
