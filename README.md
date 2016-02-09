@@ -12,7 +12,7 @@ many types of codebases.
 Simple run debtcollector in the top-level directory of your project and let it
 run. For larger projects it can take a while.
 
-    debtcollector
+    ./path/to/debtcollector.py
 
 You can improve how it runs by adding a `.debtcollectorrc` to your project. See
 the `dotdebtcollectorrc` file for an example. Excluding vendor files, especially
