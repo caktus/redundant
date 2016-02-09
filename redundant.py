@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import sys, os, re
 from contextlib import contextmanager
 import difflib
@@ -7,7 +6,9 @@ import configparser
 import fnmatch
 
 config = configparser.ConfigParser()
-config.read(".debtcollectorrc")
+config.read(".redundantrc")
+config.setdefault('report', {})
+config.setdefault('files', {})
 
 INDENT_SIZE = int(config['report'].get('indent', 4))
 _CUR_INDENT = 0
@@ -18,11 +19,11 @@ EXTENSIONS = [line.strip() for line in config['files'].get('extensions', '').spl
 EXCLUDE_GLOBS = [line.strip() for line in config['files'].get('exclude-path', '').split('\n') if line]
 DUP_IGNORE_LINE_RE = [re.compile(line.strip()) for line in config['files'].get('dup-ignore-line-re', '').split('\n') if line]
 
-dupskipfile = open('.debtcollectordupskip', 'a')
+dupskipfile = open('.redundantdupskip', 'a')
 def add_dup_skip(filepath):
     _print(filepath, file=dupskipfile)
     dupskipfile.flush()
-DUP_SKIP = [f.strip() for f in open('.debtcollectordupskip') if f]
+DUP_SKIP = [f.strip() for f in open('.redundantdupskip') if f]
 
 SEEN_FUNCTIONS = {}
 
@@ -110,7 +111,7 @@ def readfile(filepath):
         lines.append(line.decode('utf8', 'ignore'))
     return lines
 
-def main(argv):
+def main():
     for root, dirs, filenames in os.walk(".", topdown=True):
         if 'migrations' in dirs:
             dirs.remove('migrations')
@@ -132,7 +133,7 @@ def main(argv):
     print("Analyzing files for diverged duplicates...")
     if DUP_SKIP:
         with indent():
-            print("(skipping %d files from .debtcollectordupskip)" % (len(DUP_SKIP),))
+            print("(skipping %d files from .redundantdupskip)" % (len(DUP_SKIP),))
     for afilepath in sorted(seen_files):
         if afilepath in DUP_SKIP:
             continue
@@ -192,4 +193,4 @@ def main(argv):
                 add_dup_skip(afilepath)
 
 if __name__ == '__main__':
-    main(sys.argv)
+    main()
