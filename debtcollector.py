@@ -7,7 +7,7 @@ import configparser
 import fnmatch
 
 config = configparser.ConfigParser()
-config.read(".pydebtrc")
+config.read(".debtcollectorrc")
 
 INDENT_SIZE = int(config['report'].get('indent', 4))
 _CUR_INDENT = 0
@@ -17,11 +17,11 @@ DIFF_LENGTH_MIN = float(config['report'].get('diff-line-min', 0.5))
 EXTENSIONS = [line.strip() for line in config['files']['extensions'].split('\n') if line]
 EXCLUDE_GLOBS = [line.strip() for line in config['files']['exclude-path'].split('\n') if line]
 
-dupskipfile = open('.pydebtdupskip', 'w')
+dupskipfile = open('.debtcollectordupskip', 'w')
 def add_dup_skip(filepath):
     print(filepath, file=dupskipfile)
     dupskipfile.flush()
-DUP_SKIP = [f.strip() for f in open('.pydebtdupskip') if f]
+DUP_SKIP = [f.strip() for f in open('.debtcollectordupskip') if f]
 
 SEEN_FUNCTIONS = {}
 
