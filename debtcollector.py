@@ -14,16 +14,27 @@ _CUR_INDENT = 0
 RE_MODULE_FUNC = re.compile(r'^def (\w+)\(')
 DIFF_DELTA_MAX = float(config['report'].get('diff-delta-max', 0.5))
 DIFF_LENGTH_MIN = float(config['report'].get('diff-line-min', 0.5))
-EXTENSIONS = [line.strip() for line in config['files']['extensions'].split('\n') if line]
-EXCLUDE_GLOBS = [line.strip() for line in config['files']['exclude-path'].split('\n') if line]
+EXTENSIONS = [line.strip() for line in config['files'].get('extensions', '').split('\n') if line]
+EXCLUDE_GLOBS = [line.strip() for line in config['files'].get('exclude-path', '').split('\n') if line]
+DUP_IGNORE_LINE_RE = [re.compile(line.strip()) for line in config['files'].get('dup-ignore-line-re', '').split('\n') if line]
 
 dupskipfile = open('.debtcollectordupskip', 'a')
 def add_dup_skip(filepath):
-    print(filepath, file=dupskipfile)
+    _print(filepath, file=dupskipfile)
     dupskipfile.flush()
 DUP_SKIP = [f.strip() for f in open('.debtcollectordupskip') if f]
 
 SEEN_FUNCTIONS = {}
+
+parser = optparse.OptionParser()
+parser.add_option('-e', '--extension', dest="extension", action="append")
+parser.add_option('-o', '--output', dest="output")
+(options, args) = parser.parse_args()
+if options.extension:
+    EXTENSIONS = options.extension
+PRINT_OUTPUT = [None]
+if options.output:
+    PRINT_OUTPUT.append(open(options.output, 'w'))
 
 @contextmanager
 def indent():
@@ -37,7 +48,10 @@ def print(*args, **kwargs):
     if dotting:
         dotting = False
         _print("", end="\n")
-    _print((" "*_CUR_INDENT) + str(args[0]), *args[1:], **kwargs)
+    kwargs = dict(kwargs)
+    for out in PRINT_OUTPUT:
+        kwargs['file'] = out
+        _print((" "*_CUR_INDENT) + str(args[0]), *args[1:], **kwargs)
 dotting = False
 def dot():
     global dotting
@@ -61,15 +75,16 @@ seen_files = {}
 def record_file(filepath):
     filerec = seen_files.setdefault(filepath, {
         "linecount": 0,
+        "lines": readfile(filepath),
     })
     print("file:", filepath)
     ext = os.path.splitext(filepath)[1]
     with indent():
         try:
-            for line in open(filepath):
+            for line in readfile(filepath):
                 filerec['linecount'] += 1
                 try:
-                    line_proc = globals()['process_file_line_' + ext]
+                    line_proc = globals()['process_file_line_' + ext.strip('.')]
                 except KeyError:
                     continue
                 else:
@@ -89,13 +104,13 @@ def check_file_ext(filename):
             return True
     return False
 
-def main(argv):
-    parser = optparse.OptionParser()
-    parser.add_option('-e', '--extension', dest="extension", action="append")
-    (options, args) = parser.parse_args()
-    if options.extension:
-        EXTENSIONS[:] = options.extension
+def readfile(filepath):
+    lines = []
+    for line in open(filepath, 'rb'):
+        lines.append(line.decode('utf8', 'ignore'))
+    return lines
 
+def main(argv):
     for root, dirs, filenames in os.walk(".", topdown=True):
         if 'migrations' in dirs:
             dirs.remove('migrations')
@@ -110,8 +125,15 @@ def main(argv):
                 if not is_excluded:
                     record_file(filepath)
 
+    line_total = 0
+    for filerec in seen_files.values():
+        line_total += len(filerec['lines'])
+    print("Read %d lines of %d files." % (line_total, len(seen_files)))
     print("Analyzing files for diverged duplicates...")
-    for afilepath in seen_files:
+    if DUP_SKIP:
+        with indent():
+            print("(skipping %d files from .debtcollectordupskip)" % (len(DUP_SKIP),))
+    for afilepath in sorted(seen_files):
         if afilepath in DUP_SKIP:
             continue
         if seen_files[afilepath].get('exact_dup'):
@@ -119,10 +141,12 @@ def main(argv):
         print("duplicates for", afilepath)
         found_duplicates = False
         with indent():
-            for bfilepath in seen_files:
+            for bfilepath in sorted(seen_files):
                 if afilepath == bfilepath:
                     continue
                 elif os.path.splitext(afilepath)[1] != os.path.splitext(bfilepath)[1]:
+                    continue
+                elif bfilepath in seen_files[afilepath].get('near_files', []):
                     continue
                 alength = seen_files[afilepath]['linecount']
                 blength = seen_files[bfilepath]['linecount']
@@ -134,12 +158,22 @@ def main(argv):
                     if lengthdelta < DIFF_LENGTH_MIN:
                         continue
                 try:
-                    diff = [
-                        line for line in
-                        difflib.ndiff(list(open(afilepath)), list(open(bfilepath)))
-                        if not line.startswith(' ')
-                    ]
+                    diff = []
+                    for line in difflib.unified_diff(readfile(afilepath), readfile(bfilepath)):
+                        # Don't count lines shared
+                        if line.startswith(' '):
+                            continue
+                        # Don't count empty lines
+                        if not line.strip():
+                            continue
+                        # Don't count ignored lines
+                        for r in DUP_IGNORE_LINE_RE:
+                            if r.match(line):
+                                continue
+                        diff.append(line)
                 except UnicodeDecodeError:
+                    if not found_duplicates:
+                        dot()
                     continue
                 delta = len(diff)
                 match = delta / (seen_files[afilepath]['linecount'] + seen_files[bfilepath]['linecount'])
@@ -149,11 +183,13 @@ def main(argv):
                     found_duplicates = True
                 elif match <= DIFF_DELTA_MAX:
                     print("near:", bfilepath, "(%0.2f)" % (match,))
+                    seen_files[bfilepath].setdefault('near_files', []).append(afilepath)
                     found_duplicates = True
+                # elif not found_duplicates:
+                #     dot()
             if not found_duplicates:
                 print("none. adding to skip list.")
                 add_dup_skip(afilepath)
-        # dot()
 
 if __name__ == '__main__':
     main(sys.argv)
