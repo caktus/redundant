@@ -17,7 +17,7 @@ DIFF_LENGTH_MIN = float(config['report'].get('diff-line-min', 0.5))
 EXTENSIONS = [line.strip() for line in config['files']['extensions'].split('\n') if line]
 EXCLUDE_GLOBS = [line.strip() for line in config['files']['exclude-path'].split('\n') if line]
 
-dupskipfile = open('.debtcollectordupskip', 'w')
+dupskipfile = open('.debtcollectordupskip', 'a')
 def add_dup_skip(filepath):
     print(filepath, file=dupskipfile)
     dupskipfile.flush()
