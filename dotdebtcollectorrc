@@ -18,3 +18,5 @@ exclude-path =
 
 [report]
 indent = 4
+diff-line-min = 0.75
+diff-delta-max = 0.5
