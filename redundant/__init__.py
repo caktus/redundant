@@ -4,6 +4,8 @@ import difflib
 import optparse
 import configparser
 import fnmatch
+import importlib
+from collections import namedtuple
 
 config = configparser.ConfigParser()
 config.read(".redundantrc")
@@ -72,6 +74,16 @@ def record_function(funcname, filepath):
             print("duplicate total:", dup_count)
     seen_at.append(filepath)
 
+_default_filetype = namedtuple("filetype", "ext")
+def get_filetype(filepath):
+    ext = os.path.splitext(filepath)[1]
+    try:
+        mod = importlib.import_module('redundant.filetype_%s' % ext[1:])
+        mod.ext = ext
+    except ImportError:
+        mod = _default_filetype(ext=ext)
+    return mod
+
 seen_files = {}
 def record_file(filepath):
     filerec = seen_files.setdefault(filepath, {
@@ -79,25 +91,20 @@ def record_file(filepath):
         "lines": readfile(filepath),
     })
     print("file:", filepath)
-    ext = os.path.splitext(filepath)[1]
+    filetype = get_filetype(filepath)
     with indent():
         try:
             for line in readfile(filepath):
                 filerec['linecount'] += 1
                 try:
-                    line_proc = globals()['process_file_line_' + ext.strip('.')]
-                except KeyError:
-                    continue
+                    line_proc = filetype.process_file_line
+                except AttributeError:
+                    break
                 else:
                     line_proc(filepath, filerec, line)
         except UnicodeDecodeError:
             print("[!] Unicode Decode Error")
         # print(filerec['linecount'], "lines")
-
-def process_file_line_py(filepath, filerec, line):
-    if RE_MODULE_FUNC.match(line):
-        funcname = RE_MODULE_FUNC.match(line).groups()[0]
-        record_function(funcname, filepath)
 
 def check_file_ext(filename):
     for ext in EXTENSIONS:
