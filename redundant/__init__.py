@@ -39,14 +39,15 @@ PRINT_OUTPUT = [None]
 if options.output:
     PRINT_OUTPUT.append(open(options.output, 'w'))
 
-_INDENT_HEADER = None
+_INDENT_HEADER = []
 @contextmanager
 def indent(header=None):
     global _CUR_INDENT
     global _INDENT_HEADER
     _CUR_INDENT += INDENT_SIZE
-    _INDENT_HEADER = header
+    _INDENT_HEADER.append(header)
     yield
+    _INDENT_HEADER.pop()
     _CUR_INDENT -= INDENT_SIZE
 _print = print
 def print(*args, **kwargs):
@@ -55,13 +56,19 @@ def print(*args, **kwargs):
     if dotting:
         dotting = False
         _print("", end="\n")
+    def do_print(*args, indent=None, **kwargs):
+        kwargs = dict(kwargs)
+        if indent is None:
+            indent = _CUR_INDENT
+        for out in PRINT_OUTPUT:
+            kwargs['file'] = out
+            _print((" "*indent) + str(args[0]), *args[1:], **kwargs)
     if _INDENT_HEADER:
-        _print((" "*(_CUR_INDENT - INDENT_SIZE)) + _INDENT_HEADER)
-        _INDENT_HEADER = None
-    kwargs = dict(kwargs)
-    for out in PRINT_OUTPUT:
-        kwargs['file'] = out
-        _print((" "*_CUR_INDENT) + str(args[0]), *args[1:], **kwargs)
+        for i, header in enumerate(_INDENT_HEADER):
+            if header:
+                do_print(header, indent=(i * INDENT_SIZE))
+                _INDENT_HEADER[i] = None
+    do_print(*args, **kwargs)
 dotting = False
 def dot():
     global dotting
@@ -70,9 +77,9 @@ def dot():
     sys.stdout.flush()
 
 def record_function(funcname, filepath):
-    print("function:", funcname)
+    # print("function:", funcname)
     seen_at = SEEN_FUNCTIONS.setdefault(funcname, [])
-    with indent():
+    with indent("function: %s (from %s)"  % (funcname, filepath)):
         dup_count = 0
         for other_filepath in seen_at:
             print("duplicate name in:", other_filepath)
@@ -97,9 +104,9 @@ def record_file(filepath):
         "linecount": 0,
         "lines": readfile(filepath),
     })
-    print("file:", filepath)
+    # print("file:", filepath)
     filetype = get_filetype(filepath)
-    with indent():
+    with indent("file: " + filepath):
         try:
             for line in readfile(filepath):
                 filerec['linecount'] += 1
