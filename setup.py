@@ -3,11 +3,12 @@
 from distutils.core import setup
 
 setup(name='redundant',
-      version='0.1.0',
+      version='0.1.1',
       description='Project technical debt analysis tool',
       author='Calvin Spealman',
       author_email='calvin@caktusgroup.com',
       url='https://www.github.com/caktus/redundant',
-      py_modules=['redundant'],
+      packages=['redundant'],
       scripts=['scripts/redundant'],
+      long_description=open('README.md').read(),
 )

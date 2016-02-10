@@ -191,6 +191,3 @@ def main():
             if not found_duplicates:
                 print("none. adding to skip list.")
                 add_dup_skip(afilepath)
-
-if __name__ == '__main__':
-    main()
