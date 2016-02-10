@@ -39,18 +39,25 @@ PRINT_OUTPUT = [None]
 if options.output:
     PRINT_OUTPUT.append(open(options.output, 'w'))
 
+_INDENT_HEADER = None
 @contextmanager
-def indent():
+def indent(header=None):
     global _CUR_INDENT
+    global _INDENT_HEADER
     _CUR_INDENT += INDENT_SIZE
+    _INDENT_HEADER = header
     yield
     _CUR_INDENT -= INDENT_SIZE
 _print = print
 def print(*args, **kwargs):
     global dotting
+    global _INDENT_HEADER
     if dotting:
         dotting = False
         _print("", end="\n")
+    if _INDENT_HEADER:
+        _print((" "*(_CUR_INDENT - INDENT_SIZE)) + _INDENT_HEADER)
+        _INDENT_HEADER = None
     kwargs = dict(kwargs)
     for out in PRINT_OUTPUT:
         kwargs['file'] = out
@@ -146,9 +153,9 @@ def main():
             continue
         if seen_files[afilepath].get('exact_dup'):
             continue
-        print("duplicates for", afilepath)
+        # print("duplicates for", afilepath)
         found_duplicates = False
-        with indent():
+        with indent("duplicates for " + afilepath):
             for bfilepath in sorted(seen_files):
                 if afilepath == bfilepath:
                     continue
@@ -196,5 +203,5 @@ def main():
                 # elif not found_duplicates:
                 #     dot()
             if not found_duplicates:
-                print("none. adding to skip list.")
+                # print("none. adding to skip list.")
                 add_dup_skip(afilepath)

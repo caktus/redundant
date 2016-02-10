@@ -1,4 +1,5 @@
-# redundant
+redundant
+#########
 
 redundant is a linter for project wide technical debt.
 
@@ -7,7 +8,8 @@ While redundant was built with Django projects in mind, and to that end can
 analyze python, javascript, html, and css files, it should be useful for
 many types of codebases.
 
-## Usage
+Usage
+=====
 
 Simple run redundant in the top-level directory of your project and let it
 run. For larger projects it can take a while.
