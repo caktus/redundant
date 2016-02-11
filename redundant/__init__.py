@@ -5,6 +5,7 @@ import optparse
 import configparser
 import fnmatch
 import importlib
+from bisect import insort_left, bisect_left
 from collections import namedtuple
 
 config = configparser.ConfigParser()
@@ -126,11 +127,75 @@ def check_file_ext(filename):
             return True
     return False
 
+line_sorted = []
+line_files = {}
 def readfile(filepath):
     lines = []
-    for line in open(filepath, 'rb'):
-        lines.append(line.decode('utf8', 'ignore'))
+    for bline in open(filepath, 'rb'):
+        tline = bline.decode('utf8', 'ignore')
+        tline_stripped = tline.strip()
+        tline_i = bisect_left(line_sorted, (len(tline_stripped), tline_stripped))
+        try:
+            if line_sorted[tline_i][1] != tline_stripped:
+                line_sorted.insert(tline_i, (len(tline_stripped), tline_stripped))
+        except IndexError:
+            line_sorted.insert(tline_i, (len(tline_stripped), tline_stripped))
+        line_files.setdefault(tline, set()).add(filepath)
+        lines.append(tline)
     return lines
+
+def lines_in_length_range(min_length, max_length):
+    i_start = 0
+    i_end = len(line_sorted) - 1
+    l_start = line_sorted[i_start][0]
+    l_end = line_sorted[i_end][0]
+    f_start = False
+    f_end = False
+
+    while l_start < min_length and not f_start:
+        i_start += 1024
+        l_start = line_sorted[i_start][0]
+        while l_start >= min_length and not f_start:
+            i_start -= 1
+            l_start = line_sorted[i_start][0]
+            if l_start < min_length:
+                f_start = True
+
+    while l_end > max_length and not f_end:
+        i_end -= 1024
+        try:
+            l_end = line_sorted[i_end][0]
+        except IndexError:
+            i_end = i_start + 1
+            l_end = line_sorted[i_end][0]
+        while l_end <= min_length and not f_end:
+            i_end += 1
+            l_end = line_sorted[i_end][0]
+            if l_end > max_length:
+                f_end = True
+
+    for i in range(i_start, i_end + 1):
+        yield line_sorted[i][1]
+
+def levenshtein(s1, s2):
+    if len(s1) < len(s2):
+        return levenshtein(s2, s1)
+
+    # len(s1) >= len(s2)
+    if len(s2) == 0:
+        return len(s1)
+
+    previous_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = previous_row[j + 1] + 1 # j+1 instead of j since previous_row and current_row are one character longer
+            deletions = current_row[j] + 1       # than s2
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+
+    return previous_row[-1]
 
 def main():
     for root, dirs, filenames in os.walk(".", topdown=True):
@@ -150,6 +215,7 @@ def main():
     line_total = 0
     for filerec in seen_files.values():
         line_total += len(filerec['lines'])
+
     print("Read %d lines of %d files." % (line_total, len(seen_files)))
     print("Analyzing files for diverged duplicates...")
     if DUP_SKIP:
