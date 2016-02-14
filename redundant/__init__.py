@@ -69,7 +69,8 @@ def print(*args, **kwargs):
     if _INDENT_HEADER:
         for i, header in enumerate(_INDENT_HEADER):
             if header:
-                do_print(header, indent=(i * INDENT_SIZE))
+                for header_line in header.split('\n'):
+                    do_print(header_line, indent=(i * INDENT_SIZE))
                 _INDENT_HEADER[i] = None
     do_print(*args, **kwargs)
 dotting = False
@@ -135,7 +136,7 @@ longest_line_length = 0
 def readfile(filepath):
     global longest_line_length
     lines = []
-    for bline in open(filepath, 'rb'):
+    for linenum, bline in enumerate(open(filepath, 'rb'), 1):
         tline = bline.decode('utf8', 'ignore')
         tline_stripped = tline.strip()
         longest_line_length = max(longest_line_length, len(tline_stripped))
@@ -145,7 +146,7 @@ def readfile(filepath):
                 line_sorted.insert(tline_i, (len(tline_stripped), tline_stripped))
         except IndexError:
             line_sorted.insert(tline_i, (len(tline_stripped), tline_stripped))
-        line_files.setdefault(tline_stripped, set()).add(filepath)
+        line_files.setdefault(tline_stripped, {}).setdefault('files', {})[filepath] = linenum
         lines.append(tline)
     return lines
 
@@ -327,17 +328,19 @@ def find_similar_lines(line, orig_filepath):
     search_min_length = int(len(line) - max_levenshtein)
     search_max_length = int(len(line) + max_levenshtein)
 
-    with indent(next(iter(line_files[line])) + ": " + line):
+    one_file = next(iter(line_files[line]['files']))
+
+    with indent(one_file + ": " + line):
         for i, possible_line in enumerate(lines_in_length_range(search_min_length, search_max_length)):
             if i % 4096 == 0:
                 dot()
             if possible_line != line:
                 possible_lev = score_line_diff(line_diff(line, possible_line))
                 if possible_lev <= max_levenshtein and possible_lev > 0.5:
-                    with indent("%s (%0.2f)" % (possible_lev, possible_line)):
-                        for filepath in line_files[possible_line]:
+                    with indent("%s (orig)\n%s (%0.2f)" % (line, possible_line, possible_lev)):
+                        for filepath, linenum in line_files[possible_line]['files'].items():
                             if filepath != orig_filepath:
-                                print(filepath)
+                                print("%s: %s" % (filepath, linenum))
 
 def main():
     for root, dirs, filenames in os.walk(".", topdown=True):
