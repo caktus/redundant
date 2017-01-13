@@ -83,9 +83,10 @@ def print(*args, **kwargs):
 dotting = False
 def dot():
     global dotting
-    dotting = True
-    _print(".", end="")
-    sys.stdout.flush()
+    if sys.stdout.isatty():
+        dotting = True
+        _print(".", end="")
+        sys.stdout.flush()
 
 def record_function(funcname, filepath):
     # print("function:", funcname)
@@ -186,11 +187,12 @@ _current_status = ""
 
 def spin_cursor(status):
     global _current_status
-    _current_status = "%s %s" % (next(spinner), status)
-    sys.stdout.write(_current_status)
-    sys.stdout.flush()
-    # time.sleep(0.1)
-    sys.stdout.write('\b' * len(_current_status))
+    if sys.stdout.isatty():
+        _current_status = "%s %s" % (next(spinner), status)
+        sys.stdout.write(_current_status)
+        sys.stdout.flush()
+        # time.sleep(0.1)
+        sys.stdout.write('\b' * len(_current_status))
 
 
 def main():
