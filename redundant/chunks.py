@@ -1,4 +1,5 @@
 from . import lines
+from .config import config
 
 class Chunk(object):
 
@@ -78,8 +79,8 @@ def extend_chunks(start1, start2, start_score, min_score, min_lines):
 def find_similar_chunks(file_data, line_files, min_line, max_line):
     from redundant import indent, print, spin_cursor
 
+    MIN_SIM_LINE = float(config['chunks'].get('min-sim-line', 0.5))
     starting_lines = {}
-
     count = 0
 
     print("Analyzing for similar chunks within files...")
@@ -88,7 +89,7 @@ def find_similar_chunks(file_data, line_files, min_line, max_line):
         spin_cursor(count)
 
         if line.stripped not in starting_lines:
-            for i, simline in enumerate(lines.find_similar_lines(line_files, line, 0.5)):
+            for i, simline in enumerate(lines.find_similar_lines(line_files, line, MIN_SIM_LINE)):
                 starting_lines.setdefault(line, []).append(simline)
                 spin_cursor(len(starting_lines))
             # if line.stripped in starting_lines:
@@ -98,9 +99,10 @@ def find_similar_chunks(file_data, line_files, min_line, max_line):
 
     # Now try to extend these into chunks...
     # somehow...
+    MIN_LENGTH = int(config['chunks'].get('min-length', 10))
     for line, simlines in starting_lines.items():
         for (simline, score) in simlines:
-            extend_chunks(line, simline, score, score - 0.2, 10)
+            extend_chunks(line, simline, score, score - 0.2, MIN_LENGTH)
     return
     for line, simlines in starting_lines.items():
         for (simline, score) in simlines:

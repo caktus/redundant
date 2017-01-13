@@ -5,7 +5,6 @@ import time
 from contextlib import contextmanager
 import difflib
 import optparse
-import configparser
 import fnmatch
 import importlib
 from bisect import insort_left, bisect_left
@@ -13,11 +12,7 @@ from collections import namedtuple
 
 from .lines import line_diff, score_line_diff, lines_in_length_range, record_line
 from . import chunks
-
-config = configparser.ConfigParser()
-config.read(".redundantrc")
-config.setdefault('report', {})
-config.setdefault('files', {})
+from .config import config
 
 INDENT_SIZE = int(config['report'].get('indent', 4))
 _CUR_INDENT = 0
