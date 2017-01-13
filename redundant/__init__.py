@@ -1,4 +1,7 @@
-import sys, os, re
+import sys
+import os
+import re
+import time
 from contextlib import contextmanager
 import difflib
 import optparse
@@ -7,6 +10,9 @@ import fnmatch
 import importlib
 from bisect import insort_left, bisect_left
 from collections import namedtuple
+
+from .lines import line_diff, score_line_diff, lines_in_length_range, record_line
+from . import chunks
 
 config = configparser.ConfigParser()
 config.read(".redundantrc")
@@ -34,6 +40,7 @@ parser = optparse.OptionParser()
 parser.add_option('-e', '--extension', dest="extension", action="append")
 parser.add_option('-o', '--output', dest="output")
 parser.add_option('', '--similar-lines', dest="similar_lines", action="store_true")
+parser.add_option('', '--similar-chunks', dest="similar_chunks", action="store_true")
 parser.add_option('', '--similar-files', dest="similar_files", action="store_true")
 (options, args) = parser.parse_args()
 if options.extension:
@@ -130,224 +137,72 @@ def check_file_ext(filename):
             return True
     return False
 
-line_sorted = []
 line_files = {}
 longest_line_length = 0
 def readfile(filepath):
     global longest_line_length
+    if filepath in seen_files:
+        return seen_files[filepath]['lines']
     lines = []
     for linenum, bline in enumerate(open(filepath, 'rb'), 1):
         tline = bline.decode('utf8', 'ignore')
         tline_stripped = tline.strip()
         longest_line_length = max(longest_line_length, len(tline_stripped))
-        tline_i = bisect_left(line_sorted, (len(tline_stripped), tline_stripped))
-        try:
-            if line_sorted[tline_i][1] != tline_stripped:
-                line_sorted.insert(tline_i, (len(tline_stripped), tline_stripped))
-        except IndexError:
-            line_sorted.insert(tline_i, (len(tline_stripped), tline_stripped))
+        record_line(filepath, linenum, tline)
         line_files.setdefault(tline_stripped, {}).setdefault('files', {})[filepath] = linenum
         lines.append(tline)
     return lines
 
-def lines_in_length_range(min_length, max_length):
-    assert min_length <= max_length
-    if max_length == 0:
-        return iter([""])
-    i_start = 0
-    i_end = len(line_sorted) - 1
-    l_start = line_sorted[i_start][0]
-    l_end = line_sorted[i_end][0]
-    f_start = False
-    f_end = False
-
-    while l_start < min_length and not f_start:
-        i_start += 1024
-        l_start = line_sorted[i_start][0]
-        while l_start >= min_length and not f_start:
-            i_start -= 1
-            l_start = line_sorted[i_start][0]
-            if l_start < min_length:
-                f_start = True
-
-    while l_end > max_length and not f_end:
-        i_end -= 1024
-        try:
-            l_end = line_sorted[i_end][0]
-        except IndexError:
-            i_end = i_start + 1
-            l_end = line_sorted[i_end][0]
-        while l_end <= min_length and not f_end:
-            i_end += 1
-            l_end = line_sorted[i_end][0]
-            if l_end > max_length:
-                f_end = True
-
-    for i in range(i_start, i_end + 1):
-        yield line_sorted[i][1]
-
-def line_diff(line1, line2):
-    """Constructs a representation of the difference between two lines and a score.
-
-    Given the two lines:
-        for i in range(i_start, i_end + 1):
-        for i in range(start, end):
-
-    line_diff() will produce a sequence of substrings that are the same and differ between
-    the two lines, like this:
-
-        [
-            "for i in range(",
-            ("i_start", "start"),
-            ", ",
-            ("i_end + 1", "end"),
-            "):",
-        ]
-    """
-    line1 = list(line1)
-    cur1 = 0
-    line2 = list(line2)
-    cur2 = 0
-
-    def next1():
-        nonlocal cur1
-        c = line1[cur1]
-        cur1 += 1
-        return c
-
-    def next2():
-        nonlocal cur2
-        c = line2[cur2]
-        cur2 += 1
-        return c
-
-    def findnext(line, cur, char):
-        # track other chars to find the closest the strings reconverge
-        others = {}
-        # do not advance cursor yet, just locate
-        for i in range(cur, len(line) - 1):
-            if char == line[i]:
-                return i, others
-            else:
-                others.setdefault(line[i], i - cur)
-        # found the end of the line
-        return (None, others)
-
-    buf_same = []
-    buf_line1 = []
-    buf_line2 = []
-
-    results = []
-
-    while cur1 < len(line1) and cur2 < len(line2):
-        char1 = next1()
-        char2 = next2()
-
-        # If the lines continue to be similar, add to the Same Buffer
-        if char1 == char2:
-            buf_same.append(char1)
-            continue
-        elif buf_same:
-            results.append(''.join(buf_same))
-            buf_same[:] = []
-
-        # If they differ here, we want to read into Line 1 Buffer OR Line 2 Buffer
-        # whichever has the shortest distance to the other line's next character
-        nextchar1, otherchars1 = findnext(line1, cur1, char2)
-        nextchar2, otherchars2 = findnext(line2, cur2, char1)
-        # Did we find the end of either line?
-
-        next_char_max_dists = {}
-        same_chars = set(otherchars1) & set(otherchars2)
-        if same_chars:
-            for c in same_chars:
-                next_char_max_dists[c] = max(otherchars1[c], otherchars2[c])
-            next_char_max_dists_sorted = list(sorted((d, c) for (c, d) in next_char_max_dists.items()))
-            closest_next_char_dist, closest_next_char = next_char_max_dists_sorted[0]
-            # Now we only want to advance this far
-
-            if nextchar1 is None:
-                nextchar1 = closest_next_char_dist
-            else:
-                nextchar1 = min(closest_next_char_dist, nextchar1)
-            if nextchar2 is None:
-                nextchar2 = closest_next_char_dist
-            else:
-                nextchar2 = min(closest_next_char_dist, nextchar2)
-
-        # Neither gap is very small, so we'll treat this as a divergent segment
-        # this means we read both into their own buffers up to the new cursor positions
-        buf_line1.append(char1)
-        buf_line2.append(char2)
-        while cur1 < len(line1) and (nextchar1 is None or cur1 <= nextchar1):
-            buf_line1.append(next1())
-        while cur2 < len(line2) and (nextchar2 is None or cur2 <= nextchar2):
-            buf_line2.append(next2())
-        # We assume the cursors now point to the same character
-        results.append((''.join(buf_line1), ''.join(buf_line2)))
-        buf_line1[:] = []
-        buf_line2[:] = []
-
-    if buf_same:
-        results.append(''.join(buf_same))
-    return results
-
-def score_line_diff(diff):
-    same_chars = 0.0
-    diff_chars = 0.0
-    for entry in diff:
-        if isinstance(entry, tuple):
-            left, right = entry
-            diff_chars += (len(left) + len(right)) / 2
-        else:
-            same_chars = len(entry)
-    return same_chars / (same_chars + diff_chars)
-
-def levenshtein(s1, s2):
-    if len(s1) < len(s2):
-        return levenshtein(s2, s1)
-
-    # len(s1) >= len(s2)
-    if len(s2) == 0:
-        return len(s1)
-
-    previous_row = range(len(s2) + 1)
-    for i, c1 in enumerate(s1):
-        current_row = [i + 1]
-        for j, c2 in enumerate(s2):
-            insertions = previous_row[j + 1] + 1 # j+1 instead of j since previous_row and current_row are one character longer
-            deletions = current_row[j] + 1       # than s2
-            substitutions = previous_row[j] + (c1 != c2)
-            current_row.append(min(insertions, deletions, substitutions))
-        previous_row = current_row
-
-    return previous_row[-1]
-
-def find_similar_lines(line, orig_filepath):
+def report_similar_lines(line, orig_filepath):
     max_levenshtein = int(len(line) * 0.1)
     search_min_length = int(len(line) - max_levenshtein)
     search_max_length = int(len(line) + max_levenshtein)
 
     one_file = next(iter(line_files[line]['files']))
 
-    with indent(one_file + ": " + line):
-        for i, possible_line in enumerate(lines_in_length_range(search_min_length, search_max_length)):
+    with indent(one_file + ": " + line.stripped):
+        for i, line_rec in enumerate(lines_in_length_range(search_min_length, search_max_length)):
             if i % 4096 == 0:
                 dot()
-            if possible_line != line:
-                possible_lev = score_line_diff(line_diff(line, possible_line))
-                if possible_lev <= max_levenshtein and possible_lev > 0.5:
-                    with indent("%s (orig)\n%s (%0.2f)" % (line, possible_line, possible_lev)):
+            possible_line = line_rec.stripped
+            if possible_line != line.stripped:
+                possible_lev = score_line_diff(line_diff(line.stripped, possible_line))
+                if possible_lev > 0.5:
+                    with indent("%s (orig)\n%s (%0.2f)" % (line.stripped, possible_line, possible_lev)):
                         for filepath, linenum in line_files[possible_line]['files'].items():
                             if filepath != orig_filepath:
                                 print("%s: %s" % (filepath, linenum))
 
+
+def spinning_cursor():
+    while True:
+        for cursor in '|/-\\':
+            yield cursor
+
+
+spinner = spinning_cursor()
+_current_status = ""
+
+
+def spin_cursor(status):
+    global _current_status
+    _current_status = "%s %s" % (next(spinner), status)
+    sys.stdout.write(_current_status)
+    sys.stdout.flush()
+    # time.sleep(0.1)
+    sys.stdout.write('\b' * len(_current_status))
+
+
 def main():
+    print("Analyzing files...")
+    count = 0
     for root, dirs, filenames in os.walk(".", topdown=True):
         if 'migrations' in dirs:
             dirs.remove('migrations')
-        for filename in filenames:
+        for i, filename in enumerate(filenames):
             if check_file_ext(filename):
+                count += 1
+                spin_cursor(str(count))
                 filepath = os.path.join(root, filename)
                 is_excluded = False
                 for excpattern in EXCLUDE_GLOBS:
@@ -363,7 +218,10 @@ def main():
 
     if options.similar_lines:
         for line in lines_in_length_range(30, longest_line_length):
-            find_similar_lines(line, next(iter(line_files)))
+            report_similar_lines(line, next(iter(line_files)))
+
+    if options.similar_chunks:
+        chunks.find_similar_chunks(seen_files, line_files, 30, longest_line_length)
 
     if options.similar_files:
         print("Read %d lines of %d files." % (line_total, len(seen_files)))
@@ -376,7 +234,7 @@ def main():
                 continue
             if seen_files[afilepath].get('exact_dup'):
                 continue
-            # print("duplicates for", afilepath)
+            print("duplicates for", afilepath)
             found_duplicates = False
             with indent("duplicates for " + afilepath):
                 for bfilepath in sorted(seen_files):
@@ -423,8 +281,8 @@ def main():
                         print("near:", bfilepath, "(%0.2f)" % (match,))
                         seen_files[bfilepath].setdefault('near_files', []).append(afilepath)
                         found_duplicates = True
-                    # elif not found_duplicates:
-                    #     dot()
+                    elif not found_duplicates:
+                        dot()
                 if not found_duplicates:
-                    # print("none. adding to skip list.")
+                    print("none. adding to skip list.")
                     add_dup_skip(afilepath)

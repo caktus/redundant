@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from redundant import line_diff, score_line_diff
+from redundant.lines import line_diff, score_line_diff
 
 
 class LineDiffTestCase(TestCase):
